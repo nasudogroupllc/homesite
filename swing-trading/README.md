@@ -10,7 +10,7 @@ change lives in one plain-text file (`config.yaml`), and every action is a
 copy-paste command below.
 
 > ⚠️ **Important honesty note:** This system was built and tested with *synthetic*
-> (made-up) data because your real ThetaData terminal and Alpaca account live on
+> (made-up) data because your real market-data endpoint and Alpaca account live on
 > *your* VPS, not on the machine it was built on. All the logic is tested and
 > working. **You must run the backtest on your own VPS to see real historical
 > results before you trade** — that is Step 5 below, and it takes one command.
@@ -39,9 +39,13 @@ The system also automatically:
 ## 2. What you need before you start
 
 1. **Your Ubuntu VPS** (you already have it).
-2. **ThetaData Terminal** running on the VPS (their Java app) answering on
-   `http://127.0.0.1:25510`. If it's ever down, the system automatically falls
-   back to Alpaca's data and warns you on Telegram.
+2. **Market-data access** to the hosted thetadata.net endpoint
+   (`https://marketdata.boxrun.xyz`), using the shared Bearer token you'll put in
+   `.env` as `MARKETDATA_API_KEY`. Nothing to install — it's a remote service.
+   (Your VPS IP, `2.24.109.17`, may need to be allowed by whoever runs the
+   endpoint; if the test in Step 4b fails with an auth error, that's the first
+   thing to check.) If the endpoint is ever unreachable, the system
+   automatically falls back to Alpaca's data and warns you on Telegram.
 3. **Alpaca paper-trading API keys** (you already have these in
    `/home/trader/alpaca-trading/.env`).
 4. **Your existing Telegram bot** token and chat id.
@@ -70,7 +74,8 @@ add any that are missing). See `.env.example` for the full template:
 ALPACA_API_KEY=...your paper key...
 ALPACA_SECRET_KEY=...your paper secret...
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
-THETADATA_BASE_URL=http://127.0.0.1:25510
+MARKETDATA_BASE_URL=https://marketdata.boxrun.xyz
+MARKETDATA_API_KEY=...the shared bearer token you were given...
 TELEGRAM_BOT_TOKEN=...your bot token...
 TELEGRAM_CHAT_ID=...your chat id...
 ```
@@ -98,6 +103,17 @@ When it finishes, it prints your exact next commands.
 You should get a Telegram message within a few seconds. If not, double-check
 `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in your `.env`.
 
+### 4b. Test that market data works
+
+```
+./run.sh datafeed.py test AAPL
+```
+
+This confirms the hosted endpoint answers, your Bearer token is accepted, and
+real daily bars come back. You should see something like `OK - got 300 daily
+bars`. If it fails with an auth error, re-check `MARKETDATA_API_KEY` and whether
+your VPS IP (`2.24.109.17`) is allowed on the endpoint.
+
 ---
 
 ## 5. See the backtest results (do this BEFORE trading)
@@ -106,7 +122,8 @@ You should get a Telegram message within a few seconds. If not, double-check
 ./run.sh backtest.py
 ```
 
-This reads 2+ years of daily data from ThetaData and prints a summary like:
+This reads 2+ years of daily data from the market-data endpoint and prints a
+summary like:
 
 ```
  Total trades:      xxx
@@ -118,8 +135,8 @@ This reads 2+ years of daily data from ThetaData and prints a summary like:
 It also saves a chart to `equity_curve.png` in the project folder. Download that
 file to your computer to look at it (or open it in any image viewer on the VPS).
 
-> If ThetaData isn't running yet and you just want to confirm the program itself
-> works, run `./run.sh backtest.py --synthetic`. That uses fake data — the
+> If the market-data endpoint isn't set up yet and you just want to confirm the
+> program itself works, run `./run.sh backtest.py --synthetic`. That uses fake data — the
 > numbers are meaningless, it only proves the machinery runs.
 
 **Only move on once you're comfortable with the real backtest numbers.**
@@ -281,9 +298,10 @@ way you expect for a good while.
   run `./run.sh notifier.py test`.
 - **"Could not reach Alpaca":** check your keys and that `ALPACA_BASE_URL` is the
   paper URL.
-- **"ThetaData was unreachable" warning:** the ThetaData Terminal app isn't
-  running or isn't on port 25510. The system used Alpaca data instead — trading
-  continues, but restart ThetaData when you can.
+- **"ThetaData was unreachable" / fallback warning:** the market-data endpoint
+  (`marketdata.boxrun.xyz`) couldn't be reached, so the system used Alpaca data
+  instead — trading continues. Run `./run.sh datafeed.py test AAPL` to see the
+  exact problem (network vs. bad token vs. IP not allowed).
 - **Nothing traded this morning:** open `trades.log` — it says exactly why each
   candidate was skipped (sector full, position too big, drawdown halt, etc.).
 - **See errors:** every crash is also sent to you on Telegram.

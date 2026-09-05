@@ -76,7 +76,26 @@ def alpaca_keys():
 
 
 def thetadata_base_url():
-    return env("THETADATA_BASE_URL", "http://127.0.0.1:25510")
+    """Where to fetch market data.
+
+    Priority:
+      1. MARKETDATA_BASE_URL  (the hosted thetadata.net endpoint, e.g.
+         https://marketdata.boxrun.xyz)
+      2. THETADATA_BASE_URL   (a local ThetaData Terminal, e.g.
+         http://127.0.0.1:25510)
+      3. the hosted default
+    """
+    return (
+        env("MARKETDATA_BASE_URL", "")
+        or env("THETADATA_BASE_URL", "")
+        or "https://marketdata.boxrun.xyz"
+    )
+
+
+def marketdata_api_key():
+    """Bearer token for the hosted market-data endpoint. Empty for a local
+    ThetaData Terminal (which needs no token)."""
+    return env("MARKETDATA_API_KEY", "")
 
 
 def telegram_creds():

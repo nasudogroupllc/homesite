@@ -50,9 +50,11 @@ cancel_time: "15:45"         # 3:45 PM ET - cancel any entry orders that never f
 weekly_summary_time: "17:00" # 5:00 PM ET Friday - weekly Telegram summary
 
 # ---- Data source ------------------------------------------------------------
+# The endpoint URL and bearer token live in your .env (MARKETDATA_BASE_URL /
+# MARKETDATA_API_KEY), not here. These just tune the request behaviour.
 history_days: 300            # How many days of daily history to request per symbol (>=260 needed)
-thetadata_timeout: 15        # Seconds to wait for a ThetaData response before giving up
-thetadata_max_retries: 4     # How many times to retry a failed ThetaData request
+thetadata_timeout: 20        # Seconds to wait for a market-data response before giving up
+thetadata_max_retries: 4     # How many times to retry a failed market-data request
 benchmark_symbol: "SPY"      # Symbol used for the relative-strength benchmark
 
 # ---- Backtest ---------------------------------------------------------------

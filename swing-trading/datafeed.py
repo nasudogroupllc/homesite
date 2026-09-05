@@ -26,58 +26,76 @@ log = logging.getLogger("datafeed")
 class DataFeed:
     def __init__(self, notifier=None):
         self.base = config.thetadata_base_url().rstrip("/")
+        self.api_key = config.marketdata_api_key()
         self.cfg = config.CONFIG
         self.notifier = notifier
         self._fallback_warned = False
         self._theta_alive = None  # None = untested, True/False after first check
 
+    def _headers(self):
+        """Auth header for the hosted endpoint. A local ThetaData Terminal
+        needs no token, so we only add it when one is configured."""
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return {}
+
     # ---------------------------------------------------------------- ThetaData
     def _theta_request(self, path, params):
-        """One ThetaData GET with retries and backoff. Returns JSON or None."""
+        """One market-data GET with retries and backoff. Returns JSON or None."""
         url = f"{self.base}{path}"
         retries = int(self.cfg.get("thetadata_max_retries", 4))
         timeout = int(self.cfg.get("thetadata_timeout", 15))
         for attempt in range(1, retries + 1):
             try:
-                resp = requests.get(url, params=params, timeout=timeout)
+                resp = requests.get(url, params=params, headers=self._headers(),
+                                    timeout=timeout)
                 if resp.status_code == 200:
                     return resp.json()
+                if resp.status_code in (401, 403):
+                    # Bad/missing token - retrying won't help; alert clearly.
+                    log.error("Market data auth failed (HTTP %s) on %s. Check "
+                              "MARKETDATA_API_KEY in your .env.",
+                              resp.status_code, params)
+                    return None
                 if resp.status_code == 429:
                     # Rate limited - wait longer each time.
                     wait = 2 ** attempt
-                    log.warning("ThetaData rate limit (429) on %s; waiting %ss", params, wait)
+                    log.warning("Market data rate limit (429) on %s; waiting %ss", params, wait)
                     time.sleep(wait)
                     continue
                 if resp.status_code == 472:
                     # ThetaData "no data" for this symbol/range - not retryable.
-                    log.warning("ThetaData: no data for %s", params)
+                    log.warning("Market data: no data for %s", params)
                     return None
                 log.warning(
-                    "ThetaData HTTP %s on %s: %s",
+                    "Market data HTTP %s on %s: %s",
                     resp.status_code, params, resp.text[:200],
                 )
             except requests.RequestException as e:
-                log.warning("ThetaData request error (attempt %s) for %s: %s",
+                log.warning("Market data request error (attempt %s) for %s: %s",
                             attempt, params, e)
             time.sleep(min(2 ** attempt, 16))
-        log.error("ThetaData failed after %s attempts for %s", retries, params)
+        log.error("Market data failed after %s attempts for %s", retries, params)
         return None
 
     def theta_reachable(self):
-        """Quick check: is the ThetaData Terminal answering at all?"""
+        """Quick check: is the market-data endpoint answering at all?
+        Any HTTP reply (even 401/403/404) means the host is up; only a network
+        failure counts as unreachable so we fall back to Alpaca."""
         if self._theta_alive is not None:
             return self._theta_alive
-        try:
-            # A lightweight status-ish call; any HTTP answer means it's alive.
-            resp = requests.get(f"{self.base}/v2/system/mdds/status", timeout=5)
-            self._theta_alive = resp.status_code < 500
-        except requests.RequestException:
+        for probe in (f"{self.base}/v2/system/mdds/status", self.base):
             try:
-                resp = requests.get(self.base, timeout=5)
+                resp = requests.get(probe, headers=self._headers(), timeout=8)
                 self._theta_alive = True
+                if resp.status_code in (401, 403):
+                    log.error("Market data endpoint is up but rejected the token "
+                              "(HTTP %s). Check MARKETDATA_API_KEY.", resp.status_code)
+                return True
             except requests.RequestException:
-                self._theta_alive = False
-        return self._theta_alive
+                continue
+        self._theta_alive = False
+        return False
 
     def _theta_daily(self, symbol, days):
         """Fetch daily OHLCV from ThetaData's stock EOD endpoint."""
@@ -191,3 +209,23 @@ class DataFeed:
         if df is not None and len(df) >= 210:
             return df.tail(days + 60)
         return None
+
+
+if __name__ == "__main__":
+    # Connectivity test:  python datafeed.py test AAPL
+    import sys
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    symbol = sys.argv[2].upper() if len(sys.argv) > 2 else "AAPL"
+
+    feed = DataFeed()
+    print(f"Market-data endpoint: {feed.base}")
+    print(f"Bearer token set:     {'yes' if feed.api_key else 'NO'}")
+    print(f"Endpoint reachable:   {'yes' if feed.theta_reachable() else 'NO (network)'}")
+    print(f"\nFetching daily bars for {symbol} ...")
+    df = feed.get_daily_bars(symbol)
+    if df is None:
+        print("FAILED to get data. Check the endpoint URL, the token, and that "
+              "your VPS IP is allowed. See trades.log for details.")
+        sys.exit(1)
+    print(f"OK - got {len(df)} daily bars. Most recent 3:")
+    print(df.tail(3).to_string())
