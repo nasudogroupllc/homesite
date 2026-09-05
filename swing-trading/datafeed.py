@@ -57,6 +57,11 @@ class DataFeed:
                               "MARKETDATA_API_KEY in your .env.",
                               resp.status_code, params)
                     return None
+                if resp.status_code == 400:
+                    # Bad request (e.g. bad date range) - retrying won't help.
+                    log.error("Market data rejected request (HTTP 400) on %s: %s",
+                              params, resp.text[:200])
+                    return None
                 if resp.status_code == 429:
                     # Rate limited - wait longer each time.
                     wait = 2 ** attempt
@@ -97,27 +102,45 @@ class DataFeed:
         self._theta_alive = False
         return False
 
-    def _eod_params(self, symbol, days):
-        """Build the request path and query params for the EOD endpoint.
+    def _eod_window_params(self, symbol, start_dt, end_dt):
+        """Path + query params for ONE date window on the EOD endpoint.
         Defaults to ThetaData API v3; the path can be overridden in config.yaml
         (marketdata_eod_path) in case the endpoint changes again."""
-        end = datetime.now()
-        start = end - timedelta(days=int(days * 1.8) + 400)  # calendar buffer
         path = self.cfg.get("marketdata_eod_path", "/v3/stock/history/eod")
         params = {
             "symbol": symbol,          # v3 renamed 'root' -> 'symbol'
-            "start_date": start.strftime("%Y%m%d"),
-            "end_date": end.strftime("%Y%m%d"),
+            "start_date": start_dt.strftime("%Y%m%d"),
+            "end_date": end_dt.strftime("%Y%m%d"),
         }
         return path, params
 
     def _theta_daily(self, symbol, days):
-        """Fetch daily OHLCV from the market-data EOD endpoint (v3)."""
-        path, params = self._eod_params(symbol, days)
-        data = self._theta_request(path, params)
-        if not data:
+        """Fetch daily OHLCV from the market-data EOD endpoint (v3).
+
+        The endpoint allows at most 365 days per request, so we fetch in
+        ~360-day windows and stitch the results together."""
+        end = datetime.now()
+        total_cal_days = int(days * 1.45) + 15  # trading days -> calendar days
+        start = end - timedelta(days=total_cal_days)
+
+        frames = []
+        window = timedelta(days=360)  # stay safely under the 365-day cap
+        win_start = start
+        while win_start <= end:
+            win_end = min(win_start + window, end)
+            path, params = self._eod_window_params(symbol, win_start, win_end)
+            data = self._theta_request(path, params)
+            if data:
+                df = self._parse_theta(data)
+                if df is not None and len(df):
+                    frames.append(df)
+            win_start = win_end + timedelta(days=1)
+
+        if not frames:
             return None
-        return self._parse_theta(data)
+        out = pd.concat(frames)
+        out = out[~out.index.duplicated(keep="last")].sort_index()
+        return out
 
     @staticmethod
     def _parse_theta(data):
@@ -297,7 +320,9 @@ if __name__ == "__main__":
     print("(copy this and send it back so the parser can be matched exactly):")
     print("-" * 60)
     import json
-    path, params = feed._eod_params(symbol, 60)
+    from datetime import datetime as _dt, timedelta as _td
+    _end = _dt.now()
+    path, params = feed._eod_window_params(symbol, _end - _td(days=30), _end)
     try:
         resp = requests.get(f"{feed.base}{path}", params=params,
                             headers=feed._headers(), timeout=20)
