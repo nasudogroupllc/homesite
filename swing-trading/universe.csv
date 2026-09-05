@@ -1,0 +1,168 @@
+symbol,sector
+AAPL,Information Technology
+MSFT,Information Technology
+NVDA,Information Technology
+AVGO,Information Technology
+ORCL,Information Technology
+CRM,Information Technology
+AMD,Information Technology
+ADBE,Information Technology
+CSCO,Information Technology
+ACN,Information Technology
+INTC,Information Technology
+QCOM,Information Technology
+TXN,Information Technology
+IBM,Information Technology
+NOW,Information Technology
+INTU,Information Technology
+AMAT,Information Technology
+MU,Information Technology
+LRCX,Information Technology
+KLAC,Information Technology
+ADI,Information Technology
+PANW,Information Technology
+SNPS,Information Technology
+CDNS,Information Technology
+ANET,Information Technology
+CRWD,Information Technology
+FTNT,Information Technology
+MSI,Information Technology
+ROP,Information Technology
+MCHP,Information Technology
+GOOGL,Communication Services
+GOOG,Communication Services
+META,Communication Services
+NFLX,Communication Services
+DIS,Communication Services
+CMCSA,Communication Services
+T,Communication Services
+VZ,Communication Services
+TMUS,Communication Services
+CHTR,Communication Services
+EA,Communication Services
+WBD,Communication Services
+TTWO,Communication Services
+OMC,Communication Services
+AMZN,Consumer Discretionary
+TSLA,Consumer Discretionary
+HD,Consumer Discretionary
+MCD,Consumer Discretionary
+NKE,Consumer Discretionary
+LOW,Consumer Discretionary
+SBUX,Consumer Discretionary
+BKNG,Consumer Discretionary
+TJX,Consumer Discretionary
+ORLY,Consumer Discretionary
+MAR,Consumer Discretionary
+GM,Consumer Discretionary
+F,Consumer Discretionary
+CMG,Consumer Discretionary
+ROST,Consumer Discretionary
+AZO,Consumer Discretionary
+LULU,Consumer Discretionary
+PG,Consumer Staples
+KO,Consumer Staples
+PEP,Consumer Staples
+COST,Consumer Staples
+WMT,Consumer Staples
+MDLZ,Consumer Staples
+CL,Consumer Staples
+MO,Consumer Staples
+PM,Consumer Staples
+TGT,Consumer Staples
+KMB,Consumer Staples
+GIS,Consumer Staples
+KDP,Consumer Staples
+MNST,Consumer Staples
+KHC,Consumer Staples
+JNJ,Health Care
+UNH,Health Care
+LLY,Health Care
+ABBV,Health Care
+MRK,Health Care
+PFE,Health Care
+TMO,Health Care
+ABT,Health Care
+DHR,Health Care
+BMY,Health Care
+AMGN,Health Care
+MDT,Health Care
+GILD,Health Care
+ISRG,Health Care
+VRTX,Health Care
+REGN,Health Care
+CVS,Health Care
+ELV,Health Care
+CI,Health Care
+ZTS,Health Care
+JPM,Financials
+BAC,Financials
+WFC,Financials
+GS,Financials
+MS,Financials
+C,Financials
+BLK,Financials
+SPGI,Financials
+AXP,Financials
+SCHW,Financials
+CB,Financials
+MMC,Financials
+PGR,Financials
+BX,Financials
+V,Financials
+MA,Financials
+PYPL,Financials
+BRK.B,Financials
+CAT,Industrials
+BA,Industrials
+HON,Industrials
+GE,Industrials
+UNP,Industrials
+UPS,Industrials
+RTX,Industrials
+DE,Industrials
+LMT,Industrials
+ETN,Industrials
+ADP,Industrials
+CSX,Industrials
+NSC,Industrials
+EMR,Industrials
+FDX,Industrials
+GD,Industrials
+NOC,Industrials
+WM,Industrials
+PCAR,Industrials
+XOM,Energy
+CVX,Energy
+COP,Energy
+SLB,Energy
+EOG,Energy
+MPC,Energy
+PSX,Energy
+OXY,Energy
+VLO,Energy
+WMB,Energy
+KMI,Energy
+LIN,Materials
+SHW,Materials
+FCX,Materials
+APD,Materials
+ECL,Materials
+NEM,Materials
+NUE,Materials
+DOW,Materials
+NEE,Utilities
+DUK,Utilities
+SO,Utilities
+D,Utilities
+AEP,Utilities
+EXC,Utilities
+SRE,Utilities
+XEL,Utilities
+PLD,Real Estate
+AMT,Real Estate
+EQIX,Real Estate
+CCI,Real Estate
+PSA,Real Estate
+O,Real Estate
+SPG,Real Estate

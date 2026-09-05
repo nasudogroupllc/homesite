@@ -1,0 +1,60 @@
+# =============================================================================
+#  SWING TRADING SYSTEM - STRATEGY SETTINGS
+# =============================================================================
+#  This is the ONLY file you need to edit to change how the strategy behaves.
+#  You never have to touch the Python code. Change a number, save the file,
+#  and the next scan/execution run will use the new value.
+#
+#  Lines starting with "#" are comments (notes for you) and are ignored.
+#  Keep the format "name: value" exactly. Do not use tabs, only spaces.
+# =============================================================================
+
+# ---- Risk & position sizing -------------------------------------------------
+account_risk_pct: 1.0        # Risk this % of account equity per trade (1.0 = 1%)
+atr_stop_multiple: 1.5       # Stop-loss distance = this x ATR(14)
+reward_multiple: 2.0         # Take-profit distance = this x the stop distance (2.0 = 2R)
+max_positions: 4             # Never hold more than this many open positions at once
+max_sector_positions: 1      # Never hold more than this many positions in one sector
+max_position_size_pct: 30    # A single position may not exceed this % of equity
+drawdown_halt_pct: 8         # Stop opening NEW trades if equity is this % below its all-time high
+time_stop_days: 14           # Force-close any position this many CALENDAR days old
+
+# ---- Scanner universe filters ----------------------------------------------
+price_min: 15                # Only consider stocks priced at or above this ($)
+price_max: 400               # Only consider stocks priced at or below this ($)
+min_dollar_volume: 50000000  # 20-day average dollar volume must exceed this ($50M)
+
+# ---- Scanner technical filters (usually leave these alone) ------------------
+near_high_pct: 85            # Close must be >= this % of the 52-week high
+rsi_low: 35                  # RSI(14) lower bound for the "pullback" condition
+rsi_high: 50                 # RSI(14) upper bound for the "pullback" condition
+volume_ratio_min: 0.8        # Today's volume must be >= this x the 20-day average volume
+atr_vs_adr_max_atr_mult: 3   # Left side of filter 8:  3 x ATR(14)
+atr_vs_adr_max_adr_mult: 10  # Right side of filter 8: 10 x ADR(20)
+relative_strength_lookback: 63  # Trading days used for the relative-strength ranking
+keep_top_n: 20               # Keep at most this many top-ranked candidates each night
+
+# ---- Earnings safety --------------------------------------------------------
+earnings_blackout_days: 2    # Skip a stock if it reports earnings within this many trading days
+
+# ---- Order placement --------------------------------------------------------
+entry_stop_buffer: 0.05      # Entry stop price = prior-day high + this ($0.05)
+entry_limit_multiple: 1.003  # Entry limit price = entry stop x this (0.3% above)
+leg_replace_threshold: 0.02  # Re-place a bracket leg only if it is off by more than this ($)
+
+# ---- Timing (all times are America/New_York) --------------------------------
+# These are informational; the actual schedule is set by cron/systemd (see deploy/).
+scan_time: "17:00"           # 5:00 PM ET - scanner runs
+execute_time: "09:28"        # 9:28 AM ET - executor places orders
+cancel_time: "15:45"         # 3:45 PM ET - cancel any entry orders that never filled
+weekly_summary_time: "17:00" # 5:00 PM ET Friday - weekly Telegram summary
+
+# ---- Data source ------------------------------------------------------------
+history_days: 300            # How many days of daily history to request per symbol (>=260 needed)
+thetadata_timeout: 15        # Seconds to wait for a ThetaData response before giving up
+thetadata_max_retries: 4     # How many times to retry a failed ThetaData request
+benchmark_symbol: "SPY"      # Symbol used for the relative-strength benchmark
+
+# ---- Backtest ---------------------------------------------------------------
+backtest_years: 2            # How many years of history the backtest replays
+backtest_starting_equity: 100000  # Pretend starting account size for the backtest ($)
