@@ -1,0 +1,16 @@
+# Secrets - NEVER commit these
+.env
+
+# Runtime files the system generates (not part of the code)
+candidates.json
+trades.log
+journal.csv
+state.json
+equity_curve.png
+backtest_cache.pkl
+
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+venv/

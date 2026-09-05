@@ -1,0 +1,32 @@
+# =============================================================================
+#  CRON SCHEDULE for the swing trading system
+# =============================================================================
+#  Do NOT paste this file as-is. Run  deploy/setup.sh  which generates a copy
+#  with the correct absolute paths already filled in. This file is the template
+#  so you can see exactly what gets scheduled.
+#
+#  __PROJECT__ is replaced with your project folder (e.g. /home/trader/alpaca-trading/swing-trading)
+#
+#  All times are New York time because of the CRON_TZ line below (Ubuntu's cron
+#  supports it). Jobs only run Monday-Friday; the code itself also skips market
+#  holidays.
+# =============================================================================
+CRON_TZ=America/New_York
+
+# 9:28 AM ET - place bracket orders from last night's candidates
+28 9 * * 1-5   __PROJECT__/run.sh executor.py morning    >> __PROJECT__/trades.log 2>&1
+
+# 9:45 AM ET - after entries fill, fix bracket legs to the real fill price
+45 9 * * 1-5   __PROJECT__/run.sh executor.py reconcile  >> __PROJECT__/trades.log 2>&1
+
+# 3:45 PM ET - cancel any entry orders that never filled today
+45 15 * * 1-5  __PROJECT__/run.sh executor.py cancel     >> __PROJECT__/trades.log 2>&1
+
+# 4:10 PM ET - record any stop/target exits that happened during the day
+10 16 * * 1-5  __PROJECT__/run.sh executor.py reconcile  >> __PROJECT__/trades.log 2>&1
+
+# 5:00 PM ET - scan the market and write tomorrow's candidates
+0 17 * * 1-5   __PROJECT__/run.sh scanner.py             >> __PROJECT__/trades.log 2>&1
+
+# 5:05 PM ET Friday - send the weekly performance summary on Telegram
+5 17 * * 5     __PROJECT__/run.sh notifier.py weekly     >> __PROJECT__/trades.log 2>&1

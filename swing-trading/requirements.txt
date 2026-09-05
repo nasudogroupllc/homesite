@@ -1,0 +1,10 @@
+# Python packages this system needs.
+# Install them all at once with:  pip install -r requirements.txt
+
+pandas>=2.0          # tables of price data and indicator math
+numpy>=1.24          # fast number crunching
+matplotlib>=3.7      # draws the backtest equity-curve PNG
+pyyaml>=6.0          # reads config.yaml
+requests>=2.31       # talks to ThetaData and Telegram over HTTP
+python-dotenv>=1.0   # reads your secrets from the .env file
+alpaca-py>=0.30      # official Alpaca library for placing orders and getting bars
