@@ -56,6 +56,7 @@ history_days: 300            # How many days of daily history to request per sym
 thetadata_timeout: 20        # Seconds to wait for a market-data response before giving up
 thetadata_max_retries: 4     # How many times to retry a failed market-data request
 benchmark_symbol: "SPY"      # Symbol used for the relative-strength benchmark
+marketdata_eod_path: "/v3/stock/history/eod"  # EOD endpoint path (ThetaData API v3)
 
 # ---- Backtest ---------------------------------------------------------------
 backtest_years: 2            # How many years of history the backtest replays

@@ -97,52 +97,116 @@ class DataFeed:
         self._theta_alive = False
         return False
 
-    def _theta_daily(self, symbol, days):
-        """Fetch daily OHLCV from ThetaData's stock EOD endpoint."""
+    def _eod_params(self, symbol, days):
+        """Build the request path and query params for the EOD endpoint.
+        Defaults to ThetaData API v3; the path can be overridden in config.yaml
+        (marketdata_eod_path) in case the endpoint changes again."""
         end = datetime.now()
         start = end - timedelta(days=int(days * 1.8) + 400)  # calendar buffer
+        path = self.cfg.get("marketdata_eod_path", "/v3/stock/history/eod")
         params = {
-            "root": symbol.replace(".", "/"),  # e.g. BRK.B -> BRK/B for ThetaData
+            "symbol": symbol,          # v3 renamed 'root' -> 'symbol'
             "start_date": start.strftime("%Y%m%d"),
             "end_date": end.strftime("%Y%m%d"),
         }
-        data = self._theta_request("/v2/hist/stock/eod", params)
+        return path, params
+
+    def _theta_daily(self, symbol, days):
+        """Fetch daily OHLCV from the market-data EOD endpoint (v3)."""
+        path, params = self._eod_params(symbol, days)
+        data = self._theta_request(path, params)
         if not data:
             return None
         return self._parse_theta(data)
 
     @staticmethod
     def _parse_theta(data):
-        """Turn ThetaData's JSON (header format + rows) into a DataFrame."""
+        """Turn the EOD JSON into a DataFrame. Handles two response shapes:
+          (A) column format: {"header":{"format":[...]}, "response":[[...],...]}
+          (B) list of objects: {"response":[{...},...]} or a bare [ {...}, ... ]
+        and tolerates v2 (integer YYYYMMDD) or v3 (ISO string) dates."""
         try:
-            header = data.get("header", {})
-            fmt = header.get("format") or data.get("format")
-            rows = data.get("response", [])
-            if not fmt or not rows:
-                return None
-            idx = {name: i for i, name in enumerate(fmt)}
-            needed = ("open", "high", "low", "close", "volume", "date")
-            if not all(n in idx for n in needed):
-                return None
             recs = []
-            for r in rows:
-                recs.append({
-                    "date": pd.to_datetime(str(int(r[idx["date"]])), format="%Y%m%d"),
-                    "open": float(r[idx["open"]]),
-                    "high": float(r[idx["high"]]),
-                    "low": float(r[idx["low"]]),
-                    "close": float(r[idx["close"]]),
-                    "volume": float(r[idx["volume"]]),
-                })
-            df = pd.DataFrame(recs)
+
+            # ---- Shape B: list of objects ----
+            rows_obj = None
+            if isinstance(data, list):
+                rows_obj = data
+            elif isinstance(data, dict) and isinstance(data.get("response"), list) \
+                    and data["response"] and isinstance(data["response"][0], dict):
+                rows_obj = data["response"]
+
+            if rows_obj is not None:
+                for r in rows_obj:
+                    d = DataFeed._pick(r, "date", "datetime", "session", "created", "last_trade")
+                    recs.append({
+                        "date": DataFeed._to_date(d),
+                        "open": float(DataFeed._pick(r, "open")),
+                        "high": float(DataFeed._pick(r, "high")),
+                        "low": float(DataFeed._pick(r, "low")),
+                        "close": float(DataFeed._pick(r, "close")),
+                        "volume": float(DataFeed._pick(r, "volume", "size", "count") or 0),
+                    })
+            else:
+                # ---- Shape A: header format + array rows ----
+                header = data.get("header", {}) if isinstance(data, dict) else {}
+                fmt = (header.get("format") if isinstance(header, dict) else None) \
+                    or (data.get("format") if isinstance(data, dict) else None)
+                rows = data.get("response", []) if isinstance(data, dict) else []
+                if not fmt or not rows:
+                    return None
+                idx = {name: i for i, name in enumerate(fmt)}
+                needed = ("open", "high", "low", "close", "volume", "date")
+                if not all(n in idx for n in needed):
+                    return None
+                for r in rows:
+                    recs.append({
+                        "date": DataFeed._to_date(r[idx["date"]]),
+                        "open": float(r[idx["open"]]),
+                        "high": float(r[idx["high"]]),
+                        "low": float(r[idx["low"]]),
+                        "close": float(r[idx["close"]]),
+                        "volume": float(r[idx["volume"]]),
+                    })
+
+            df = pd.DataFrame(recs).dropna(subset=["date"])
             if df.empty:
                 return None
             df = df[(df[["open", "high", "low", "close"]] > 0).all(axis=1)]
-            df = df.sort_values("date").set_index("date")
+            df = df.drop_duplicates(subset="date").sort_values("date").set_index("date")
             return df[["open", "high", "low", "close", "volume"]]
         except Exception as e:  # noqa: BLE001
-            log.error("Failed to parse ThetaData response: %s", e)
+            log.error("Failed to parse market-data response: %s", e)
             return None
+
+    @staticmethod
+    def _pick(row, *names):
+        """Return the first present key from a dict row (case-insensitive)."""
+        lower = {str(k).lower(): v for k, v in row.items()}
+        for n in names:
+            if n in row:
+                return row[n]
+            if n.lower() in lower:
+                return lower[n.lower()]
+        return None
+
+    @staticmethod
+    def _to_date(value):
+        """Parse a date that may be an int/str YYYYMMDD or an ISO datetime string."""
+        if value is None:
+            return None
+        s = str(value).strip()
+        # Pure YYYYMMDD (v2 style)?
+        if s.isdigit() and len(s) == 8:
+            return pd.to_datetime(s, format="%Y%m%d")
+        # Otherwise let pandas handle ISO strings like 2024-01-02T00:00:00.000
+        try:
+            return pd.to_datetime(s).tz_localize(None)
+        except (ValueError, TypeError):
+            try:
+                return pd.to_datetime(s)
+            except Exception:  # noqa: BLE001
+                return None
 
     # ------------------------------------------------------------------- Alpaca
     def _alpaca_daily(self, symbol, days):
@@ -222,10 +286,33 @@ if __name__ == "__main__":
     print(f"Bearer token set:     {'yes' if feed.api_key else 'NO'}")
     print(f"Endpoint reachable:   {'yes' if feed.theta_reachable() else 'NO (network)'}")
     print(f"\nFetching daily bars for {symbol} ...")
-    df = feed.get_daily_bars(symbol)
-    if df is None:
-        print("FAILED to get data. Check the endpoint URL, the token, and that "
-              "your VPS IP is allowed. See trades.log for details.")
-        sys.exit(1)
-    print(f"OK - got {len(df)} daily bars. Most recent 3:")
-    print(df.tail(3).to_string())
+    df = feed._theta_daily(symbol, int(feed.cfg.get("history_days", 300)))
+    if df is not None and len(df):
+        print(f"OK - got {len(df)} daily bars from the market-data endpoint. Most recent 3:")
+        print(df.tail(3).to_string())
+        sys.exit(0)
+
+    # Parsing failed or no data: show the RAW response so we can see the shape.
+    print("\nCould not parse bars from the market-data endpoint. Raw response below")
+    print("(copy this and send it back so the parser can be matched exactly):")
+    print("-" * 60)
+    import json
+    path, params = feed._eod_params(symbol, 60)
+    try:
+        resp = requests.get(f"{feed.base}{path}", params=params,
+                            headers=feed._headers(), timeout=20)
+        print(f"GET {feed.base}{path}?symbol={symbol}&...")
+        print(f"HTTP {resp.status_code}")
+        body = resp.text
+        try:
+            parsed = resp.json()
+            print(json.dumps(parsed, indent=2)[:1500])
+        except ValueError:
+            print(body[:1500])
+    except Exception as e:  # noqa: BLE001
+        print(f"Raw request also failed: {e}")
+    print("-" * 60)
+    print("\n(If the raw response above looks like valid price data, send it to me. "
+          "Otherwise check MARKETDATA_API_KEY. The system will use Alpaca data as a "
+          "fallback in the meantime.)")
+    sys.exit(1)
