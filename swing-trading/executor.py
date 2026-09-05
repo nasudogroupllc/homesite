@@ -300,6 +300,26 @@ def _sector_count(open_sectors, sector):
     return 1 if sector in open_sectors else 0
 
 
+def drawdown_gate(dd, halt_pct, cd_days, cooldown_remaining, halt_armed):
+    """Pure decision for the drawdown circuit breaker (easy to test).
+
+    Returns (action, new_cooldown_remaining, new_halt_armed) where action is:
+      'cooldown' - currently paused, count down one day, no new trades
+      'halt'     - just breached the drawdown limit, start the cooldown pause
+      'ok'       - trading allowed
+
+    The key property: after a halt, the pause counts DOWN and trading auto-resumes,
+    so the system can never lock itself out permanently. The breaker re-arms only
+    after equity recovers back near its high (dd <= 1%)."""
+    if dd <= 1.0:
+        halt_armed = True
+    if cooldown_remaining > 0:
+        return "cooldown", cooldown_remaining - 1, halt_armed
+    if halt_armed and dd > halt_pct:
+        return "halt", cd_days, False
+    return "ok", 0, halt_armed
+
+
 # --------------------------------------------------------------------- modes
 def morning_run():
     journal.setup_logging()
@@ -325,15 +345,28 @@ def morning_run():
     # 2) Time-stop old positions.
     enforce_time_stop(broker, cfg)
 
-    # 3) Drawdown halt.
+    # 3) Drawdown halt with auto-resume cooldown.
     dd = state.drawdown_pct(equity)
     halt = float(cfg["drawdown_halt_pct"])
-    if dd > halt:
-        msg = (f"Drawdown halt: equity is {dd:.1f}% below the high-water mark "
-               f"(limit {halt:.1f}%). NO new trades today.")
+    cd_days = int(cfg.get("drawdown_cooldown_days", 10))
+    cooldown_remaining, halt_armed = state.get_cooldown()
+    action, new_cd, new_armed = drawdown_gate(dd, halt, cd_days,
+                                              cooldown_remaining, halt_armed)
+    state.set_cooldown(new_cd, new_armed)
+    if action == "cooldown":
+        msg = (f"Drawdown cooldown: {new_cd} trading day(s) left before new trades "
+               f"resume (equity {dd:.1f}% below peak). No new trades today.")
         log.warning(msg)
         notifier.send(msg, kind="warning")
-        log.info("===== MORNING RUN END (halted) =====")
+        log.info("===== MORNING RUN END (cooldown) =====")
+        return
+    if action == "halt":
+        msg = (f"Drawdown halt: equity is {dd:.1f}% below the high-water mark "
+               f"(limit {halt:.1f}%). Pausing new trades for {cd_days} trading days, "
+               f"then auto-resuming.")
+        log.warning(msg)
+        notifier.send(msg, kind="warning")
+        log.info("===== MORNING RUN END (halt triggered) =====")
         return
 
     # 4) Market-regime filter: skip new entries if SPY is below its 200-day avg.

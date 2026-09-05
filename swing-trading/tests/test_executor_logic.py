@@ -54,7 +54,7 @@ class FakeBroker:
 def test_position_sizing_and_limits():
     # Two candidates, same sector -> only one should be placed (sector cap = 1)
     # ATR chosen so position value stays under the 30% cap:
-    # risk $1000 / (1.5*3.0=4.5) = 222 shares; 222*100.05 = $22,211 < $30,000.
+    # risk $1000 / (2.5*3.0=7.5) = 133 shares; 133*100.05 = $13,307 < $30,000.
     cand = {"candidates": [
         {"symbol": "AAA", "sector": "Tech", "price": 100, "prior_high": 100, "atr14": 3.0, "rs_score": 5, "rank": 1},
         {"symbol": "BBB", "sector": "Tech", "price": 100, "prior_high": 100, "atr14": 3.0, "rs_score": 4, "rank": 2},
@@ -70,12 +70,12 @@ def test_position_sizing_and_limits():
     assert "AAA" in placed, placed
     assert "BBB" not in placed, "sector cap failed"   # same sector as AAA
     assert "CCC" in placed, placed
-    # Sizing: risk = 1% of 100k = $1000; stop dist = 1.5*3 = 4.5 -> shares = 222
+    # Sizing: risk = 1% of 100k = $1000; stop dist = 2.5*3 = 7.5 -> shares = 133
     aaa = next(s for s in b.submitted if s["symbol"] == "AAA")
-    assert aaa["qty"] == 222, aaa["qty"]
-    # stop = entry - 4.5, target = entry + 9  (entry = 100 + 0.05 buffer = 100.05)
-    assert abs(aaa["sl"] - (100.05 - 4.5)) < 0.001
-    assert abs(aaa["tp"] - (100.05 + 9)) < 0.001
+    assert aaa["qty"] == 133, aaa["qty"]
+    # stop = entry - 7.5, target = entry + 15  (entry = 100 + 0.05 buffer = 100.05)
+    assert abs(aaa["sl"] - (100.05 - 7.5)) < 0.001
+    assert abs(aaa["tp"] - (100.05 + 15)) < 0.001
     print("PASS: sizing, sector cap, bracket levels")
 
 
@@ -95,10 +95,10 @@ def test_position_size_cap():
 
 def test_time_stop():
     journal.record_entry("OLD", 100, 97, 106, 10, 30.0)
-    # Backdate the entry to 20 days ago
+    # Backdate the entry to 70 calendar days ago (~50 trading days > the 30-day limit)
     rows = list(open(config.JOURNAL_FILE))
     rows[1] = rows[1].replace(date.today().isoformat(),
-                              (date.today() - timedelta(days=20)).isoformat())
+                              (date.today() - timedelta(days=70)).isoformat())
     open(config.JOURNAL_FILE, "w").writelines(rows)
     b = FakeBroker()
     b._positions = [{"symbol": "OLD", "qty": 10, "avg_entry_price": 100, "current_price": 104, "market_value": 1040}]
@@ -128,10 +128,41 @@ def test_state_hwm_drawdown():
     print("PASS: high-water mark + drawdown %")
 
 
+def test_drawdown_cooldown_autoresumes():
+    # Simulate day-by-day. Equity stays 10% below peak (would lock out the old code).
+    halt_pct, cd = 8.0, 10
+    remaining, armed = 0, True
+    dd = 10.0  # deeply underwater and NOT recovering
+
+    # Day 0: breach -> halt, start cooldown
+    action, remaining, armed = executor.drawdown_gate(dd, halt_pct, cd, remaining, armed)
+    assert action == "halt" and remaining == 10 and armed is False, (action, remaining, armed)
+
+    # Days 1..10: counts down, stays in cooldown
+    for _ in range(10):
+        action, remaining, armed = executor.drawdown_gate(dd, halt_pct, cd, remaining, armed)
+        assert action == "cooldown", action
+
+    # Next day: cooldown exhausted -> trading RESUMES even though still 10% down
+    action, remaining, armed = executor.drawdown_gate(dd, halt_pct, cd, remaining, armed)
+    assert action == "ok", action  # <-- the old code would have stayed halted forever
+    assert armed is False          # not re-armed until recovery
+
+    # Recover near the high -> breaker re-arms
+    action, remaining, armed = executor.drawdown_gate(0.5, halt_pct, cd, remaining, armed)
+    assert action == "ok" and armed is True
+
+    # A fresh breach after re-arming triggers a new cooldown
+    action, remaining, armed = executor.drawdown_gate(9.0, halt_pct, cd, remaining, armed)
+    assert action == "halt" and remaining == 10
+    print("PASS: drawdown cooldown auto-resumes (no permanent lockout)")
+
+
 if __name__ == "__main__":
     test_position_sizing_and_limits()
     test_position_size_cap()
     test_time_stop()
     test_safety_close_no_legs()
     test_state_hwm_drawdown()
+    test_drawdown_cooldown_autoresumes()
     print("\nALL EXECUTOR LOGIC TESTS PASSED")

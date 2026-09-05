@@ -55,3 +55,16 @@ def drawdown_pct(current_equity):
         return 0.0
     dd = (hwm - current_equity) / hwm * 100.0
     return max(0.0, dd)
+
+
+def get_cooldown():
+    """Return (cooldown_remaining_days, halt_armed) for the drawdown breaker."""
+    data = _load()
+    return int(data.get("cooldown_remaining", 0)), bool(data.get("halt_armed", True))
+
+
+def set_cooldown(remaining, armed):
+    data = _load()
+    data["cooldown_remaining"] = int(remaining)
+    data["halt_armed"] = bool(armed)
+    _save(data)

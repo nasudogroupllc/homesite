@@ -11,12 +11,13 @@
 
 # ---- Risk & position sizing -------------------------------------------------
 account_risk_pct: 1.0        # Risk this % of account equity per trade (1.0 = 1%)
-atr_stop_multiple: 1.5       # Stop-loss distance = this x ATR(14)
+atr_stop_multiple: 2.5       # Stop-loss distance = this x ATR(14)  (widened from 1.5 after robustness testing)
 reward_multiple: 2.0         # Take-profit distance = this x the stop distance (2.0 = 2R)
 max_positions: 4             # Never hold more than this many open positions at once
 max_sector_positions: 1      # Never hold more than this many positions in one sector
 max_position_size_pct: 30    # A single position may not exceed this % of equity
-drawdown_halt_pct: 8         # Stop opening NEW trades if equity is this % below its all-time high
+drawdown_halt_pct: 8         # Pause NEW trades if equity falls this % below its all-time high
+drawdown_cooldown_days: 10   # ...then automatically resume after this many trading days (avoids a permanent lockout)
 time_stop_days: 30           # Force-close any position after this many TRADING days (market days) held; 0 = OFF
 
 # Market-regime filter: when true, take NEW trades only while SPY is above its

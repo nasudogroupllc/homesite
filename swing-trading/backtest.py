@@ -228,6 +228,8 @@ def simulate(price, spy, dates, sectors, cfg, entry_start=None, entry_end=None):
     closed = []
     equity_curve = []
     peak = start_equity
+    halt_armed = True        # circuit breaker is ready to fire
+    cooldown_remaining = 0   # trading days left in a drawdown cooldown
 
     warmup = 210  # need SMA200 etc. before trading
     if entry_start is None:
@@ -310,8 +312,19 @@ def simulate(price, spy, dates, sectors, cfg, entry_start=None, entry_end=None):
         survivors.sort(key=lambda x: x[1], reverse=True)
         survivors = survivors[: int(cfg["keep_top_n"])]
 
-        # ---- 3) drawdown halt ----
-        if peak > 0 and (peak - equity) / peak * 100.0 > float(cfg["drawdown_halt_pct"]):
+        # ---- 3) drawdown halt with auto-resume cooldown ----
+        dd = (peak - equity) / peak * 100.0 if peak > 0 else 0.0
+        halt_pct = float(cfg["drawdown_halt_pct"])
+        cd_days = int(cfg.get("drawdown_cooldown_days", 10))
+        # Re-arm the breaker once we've recovered back near the high.
+        if dd <= 1.0:
+            halt_armed = True
+        if cooldown_remaining > 0:
+            cooldown_remaining -= 1
+            continue  # still cooling down: no new entries
+        if halt_armed and dd > halt_pct:
+            cooldown_remaining = cd_days   # start the pause; auto-resumes after
+            halt_armed = False
             continue
 
         # ---- 3b) market-regime filter: skip new entries when SPY is below its
