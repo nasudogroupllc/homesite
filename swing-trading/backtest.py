@@ -254,11 +254,12 @@ def run(synthetic=False, refresh=False):
                 continue
             exit_price = None
             reason = None
-            holding = (today.date() - p["entry_date"].date()).days
+            holding = (today.date() - p["entry_date"].date()).days      # calendar days
+            td_held = i - p["entry_i"]                                   # trading days
 
-            # Time stop first (a value of 0 or less disables it).
+            # Time stop first (measured in TRADING days; 0 or less disables it).
             ts_days = int(cfg["time_stop_days"])
-            if ts_days > 0 and holding >= ts_days:
+            if ts_days > 0 and td_held >= ts_days:
                 exit_price = row["open"] if not pd.isna(row["open"]) else row["close"]
                 reason = "TIME_STOP"
             else:
@@ -276,6 +277,7 @@ def run(synthetic=False, refresh=False):
                 closed.append({
                     "symbol": p["symbol"], "entry": p["entry"], "exit": exit_price,
                     "r": r_result, "reason": reason, "holding": holding,
+                    "td_held": td_held,
                     "entry_date": p["entry_date"], "exit_date": today,
                 })
             else:
@@ -358,6 +360,7 @@ def run(synthetic=False, refresh=False):
                 "symbol": sym, "sector": sector, "shares": shares, "entry": fill,
                 "stop": fill - stop_distance, "target": fill + float(cfg["reward_multiple"]) * stop_distance,
                 "risk_per_share": stop_distance, "entry_date": dates[i + 1],
+                "entry_i": i + 1,  # bar index of entry, for counting trading days held
             })
             held_syms.add(sym)
             held_sectors.add(sector)
@@ -407,7 +410,7 @@ def _report(closed, equity_curve, start_equity, final_equity):
     if n:
         print("\n WHERE TRADES ENDED (exit reason breakdown)")
         print(" " + "-" * 50)
-        print(f" {'reason':<12}{'count':>7}{'avg R':>9}{'total R':>10}{'avg days':>10}")
+        print(f" {'reason':<12}{'count':>7}{'avg R':>9}{'total R':>10}{'avg t-days':>12}")
         for reason in ("TARGET", "STOP", "TIME_STOP", "EXIT"):
             grp = [t for t in closed if t["reason"] == reason]
             if not grp:
@@ -415,10 +418,10 @@ def _report(closed, equity_curve, start_equity, final_equity):
             c = len(grp)
             ar = sum(t["r"] for t in grp) / c
             tr = sum(t["r"] for t in grp)
-            ad = sum(t["holding"] for t in grp) / c
-            print(f" {reason:<12}{c:>7}{ar:>9.2f}{tr:>10.2f}{ad:>10.1f}")
-        avg_hold = sum(t["holding"] for t in closed) / n
-        print(f"\n Average holding time: {avg_hold:.1f} calendar days")
+            ad = sum(t.get("td_held", t["holding"]) for t in grp) / c
+            print(f" {reason:<12}{c:>7}{ar:>9.2f}{tr:>10.2f}{ad:>12.1f}")
+        avg_hold = sum(t.get("td_held", t["holding"]) for t in closed) / n
+        print(f"\n Average holding time: {avg_hold:.1f} trading days")
 
         # Benchmark: buy-and-hold SPY over the same window, for context.
         try:

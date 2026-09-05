@@ -17,7 +17,7 @@ max_positions: 4             # Never hold more than this many open positions at 
 max_sector_positions: 1      # Never hold more than this many positions in one sector
 max_position_size_pct: 30    # A single position may not exceed this % of equity
 drawdown_halt_pct: 8         # Stop opening NEW trades if equity is this % below its all-time high
-time_stop_days: 14           # Force-close any position this many CALENDAR days old (set to 0 to turn OFF)
+time_stop_days: 30           # Force-close any position after this many TRADING days (market days) held; 0 = OFF
 
 # Market-regime filter: when true, take NEW trades only while SPY is above its
 # own 200-day average (i.e. skip buying during broad market downtrends). This is

@@ -243,7 +243,7 @@ uses the new value — **you never edit the code.** Common ones:
 | `max_sector_positions` | 1 | most trades in one sector |
 | `max_position_size_pct` | 30 | biggest single position (% of account) |
 | `drawdown_halt_pct` | 8 | stop new trades if account is down this % |
-| `time_stop_days` | 14 | force-close trades this many days old |
+| `time_stop_days` | 30 | force-close trades after this many **trading days** held (0 = off) |
 | `price_range` | 15–400 | `price_min` / `price_max` |
 | `min_dollar_volume` | 50,000,000 | minimum daily dollars traded |
 

@@ -28,3 +28,26 @@ def is_trading_day(today=None):
     except Exception as e:  # noqa: BLE001
         log.warning("Could not check market calendar (%s); assuming weekday=open.", e)
         return True  # already known to be a weekday
+
+
+def trading_days_between(start_date, end_date):
+    """Number of trading (market) sessions AFTER start_date up to and including
+    end_date. Used for the time stop. Falls back to a business-day count
+    (weekdays, ignoring holidays) if the market calendar can't be reached."""
+    if end_date <= start_date:
+        return 0
+    try:
+        import config
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetCalendarRequest
+
+        key, secret, base = config.alpaca_keys()
+        client = TradingClient(key, secret, paper="paper" in base.lower())
+        cal = client.get_calendar(GetCalendarRequest(start=start_date, end=end_date))
+        # sessions include the start day if it was a trading day; days held after
+        # entry is the number of sessions minus that entry session.
+        return max(0, len(cal) - 1)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Could not count trading days (%s); using business-day estimate.", e)
+        import numpy as np
+        return int(np.busday_count(start_date, end_date))

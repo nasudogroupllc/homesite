@@ -78,21 +78,25 @@ def journal_entry_date(symbol):
 
 # ----------------------------------------------------------------- core steps
 def enforce_time_stop(broker, cfg):
-    """Market-close any position that is >= time_stop_days calendar days old."""
+    """Market-close any position held >= time_stop_days TRADING days.
+    A value of 0 (or less) disables the time stop."""
     limit = int(cfg["time_stop_days"])
+    if limit <= 0:
+        return
+    import market
     for p in broker.positions():
         sym = p["symbol"]
         entry_date = journal_entry_date(sym)
         if entry_date is None:
             continue  # no recorded entry date; leave it alone
-        age = (date.today() - entry_date).days
-        if age >= limit:
+        held = market.trading_days_between(entry_date, date.today())
+        if held >= limit:
             price = p["current_price"] or p["avg_entry_price"]
-            log.info("Time stop: %s is %d days old; closing.", sym, age)
+            log.info("Time stop: %s held %d trading days; closing.", sym, held)
             if broker.close_position(sym):
                 journal.record_exit(sym, price, reason="TIME_STOP")
                 notifier.send(
-                    f"Time stop hit: closed {sym} after {age} days at ~${price:.2f}",
+                    f"Time stop hit: closed {sym} after {held} trading days at ~${price:.2f}",
                     kind="timestop",
                 )
 
