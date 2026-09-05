@@ -214,25 +214,27 @@ def _row_passes(row, spy_ret, cfg):
 
 
 # -------------------------------------------------------------------- engine
-def run(synthetic=False, refresh=False):
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    cfg = config.CONFIG
-    log.info("Loading data (%s)...", "synthetic" if synthetic else "market data")
-    price, spy, dates, sectors = load_data(cfg, synthetic=synthetic, refresh=refresh)
-    log.info("Loaded %d symbols over %d trading days.", len(price), len(dates))
+def simulate(price, spy, dates, sectors, cfg, entry_start=None, entry_end=None):
+    """Run the strategy over the data. Positions are opened only while
+    entry_start <= i < entry_end (defaults: the last backtest_years, to the end),
+    but existing positions are always managed so late trades can resolve.
 
+    Returns (closed_trades, equity_curve, start_equity, final_equity).
+    This is the SINGLE source of truth for the strategy logic - the normal
+    backtest and the parameter sweep both call it, so they can never disagree."""
     start_equity = float(cfg["backtest_starting_equity"])
     cash = start_equity
-    positions = []        # list of open position dicts
-    closed = []           # list of closed trade dicts
-    equity_curve = []     # (date, equity)
+    positions = []
+    closed = []
+    equity_curve = []
     peak = start_equity
 
-    # Only start trading once we have enough warmup (SMA200 etc.).
-    warmup = 210
-    # Only simulate the last N years for the *report* window.
-    report_start = len(dates) - int(cfg["backtest_years"]) * 252
-    report_start = max(report_start, warmup + 1)
+    warmup = 210  # need SMA200 etc. before trading
+    if entry_start is None:
+        entry_start = len(dates) - int(cfg["backtest_years"]) * 252
+    entry_start = max(entry_start, warmup + 1)
+    if entry_end is None:
+        entry_end = len(dates) - 1
 
     def mark_to_market(i):
         val = cash
@@ -284,11 +286,15 @@ def run(synthetic=False, refresh=False):
                 still_open.append(p)
         positions = still_open
 
+        # Only track equity / place trades inside the entry window.
+        if i < entry_start:
+            continue
         equity = mark_to_market(i)
         peak = max(peak, equity)
         equity_curve.append((today, equity))
 
-        if i < report_start:
+        # No new entries outside the entry window (existing positions still managed).
+        if i >= entry_end:
             continue
 
         # ---- 2) scan as of today, rank survivors ----
@@ -367,7 +373,18 @@ def run(synthetic=False, refresh=False):
 
     # ---- close out anything still open at the last price (for final equity) ----
     final_equity = mark_to_market(len(dates) - 1)
+    return closed, equity_curve, start_equity, final_equity
 
+
+def run(synthetic=False, refresh=False):
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    cfg = config.CONFIG
+    log.info("Loading data (%s)...", "synthetic" if synthetic else "market data")
+    price, spy, dates, sectors = load_data(cfg, synthetic=synthetic, refresh=refresh)
+    log.info("Loaded %d symbols over %d trading days.", len(price), len(dates))
+
+    closed, equity_curve, start_equity, final_equity = simulate(
+        price, spy, dates, sectors, cfg)
     _report(closed, equity_curve, start_equity, final_equity)
     return closed, equity_curve
 
