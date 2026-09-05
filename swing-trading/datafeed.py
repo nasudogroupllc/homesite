@@ -50,7 +50,7 @@ class DataFeed:
                 resp = requests.get(url, params=params, headers=self._headers(),
                                     timeout=timeout)
                 if resp.status_code == 200:
-                    return resp.json()
+                    return resp.text  # may be CSV or JSON; parser detects which
                 if resp.status_code in (401, 403):
                     # Bad/missing token - retrying won't help; alert clearly.
                     log.error("Market data auth failed (HTTP %s) on %s. Check "
@@ -143,8 +143,70 @@ class DataFeed:
         return out
 
     @staticmethod
-    def _parse_theta(data):
-        """Turn the EOD JSON into a DataFrame. Handles two response shapes:
+    def _parse_theta(text):
+        """Turn an EOD response body into a DataFrame. The hosted v3 endpoint
+        returns CSV; a local ThetaData Terminal may return JSON. We detect which
+        and parse accordingly."""
+        if not text or not str(text).strip():
+            return None
+        # A dict already (defensive: if a caller passed parsed JSON) -> JSON path.
+        if isinstance(text, (dict, list)):
+            return DataFeed._parse_json(text)
+        stripped = text.lstrip()
+        if stripped[:1] in ("{", "["):
+            import json as _json
+            try:
+                return DataFeed._parse_json(_json.loads(text))
+            except ValueError:
+                return None
+        return DataFeed._parse_csv(text)
+
+    @staticmethod
+    def _parse_csv(text):
+        """Parse the v3 CSV EOD response into a standardized OHLCV DataFrame.
+        Columns look like: created,last_trade,open,high,low,close,volume,count,...
+        There is no plain 'date' column, so the trading day is taken from the
+        date part of last_trade (or created)."""
+        import io
+        try:
+            df = pd.read_csv(io.StringIO(text))
+        except Exception as e:  # noqa: BLE001
+            log.error("Failed to read market-data CSV: %s", e)
+            return None
+        if df.empty:
+            return None
+        df.columns = [str(c).strip().lower() for c in df.columns]
+
+        date_col = next((c for c in ("date", "last_trade", "created", "datetime")
+                         if c in df.columns), None)
+        if date_col is None or not all(c in df.columns for c in
+                                       ("open", "high", "low", "close")):
+            log.error("Market-data CSV missing expected columns: %s", list(df.columns))
+            return None
+
+        dt = pd.to_datetime(df[date_col], errors="coerce")
+        try:
+            dt = dt.dt.tz_localize(None)   # drop tz if present
+        except (TypeError, AttributeError):
+            pass
+        df["date"] = dt.dt.normalize()     # keep the day, drop the time-of-day
+
+        for col in ("open", "high", "low", "close", "volume"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        if "volume" not in df.columns:
+            df["volume"] = 0.0
+
+        df = df.dropna(subset=["date", "open", "high", "low", "close"])
+        if df.empty:
+            return None
+        df = df[(df[["open", "high", "low", "close"]] > 0).all(axis=1)]
+        df = df.drop_duplicates(subset="date").sort_values("date").set_index("date")
+        return df[["open", "high", "low", "close", "volume"]]
+
+    @staticmethod
+    def _parse_json(data):
+        """Parse JSON EOD responses (local ThetaData Terminal). Handles:
           (A) column format: {"header":{"format":[...]}, "response":[[...],...]}
           (B) list of objects: {"response":[{...},...]} or a bare [ {...}, ... ]
         and tolerates v2 (integer YYYYMMDD) or v3 (ISO string) dates."""
