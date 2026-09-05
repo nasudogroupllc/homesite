@@ -332,9 +332,40 @@ def morning_run():
         log.info("===== MORNING RUN END (halted) =====")
         return
 
-    # 4) Place new entries.
+    # 4) Market-regime filter: skip new entries if SPY is below its 200-day avg.
+    if bool(cfg.get("market_regime_filter", False)) and not _market_is_healthy(cfg):
+        msg = ("Market-regime filter: SPY is below its 200-day average "
+               "(broad downtrend). No new trades today.")
+        log.warning(msg)
+        notifier.send(msg, kind="warning")
+        log.info("===== MORNING RUN END (regime) =====")
+        return
+
+    # 5) Place new entries.
     place_entries(broker, cfg, equity)
     log.info("===== MORNING RUN END =====")
+
+
+def _market_is_healthy(cfg):
+    """True if SPY's latest close is above its 200-day simple moving average.
+    On any data error we return True (fail open) so a data glitch doesn't
+    silently stop all trading - the regime filter is a helper, not a gate."""
+    try:
+        import indicators
+        from datafeed import DataFeed
+        feed = DataFeed(notifier=notifier)
+        df = feed.get_daily_bars(cfg["benchmark_symbol"])
+        if df is None or len(df) < 205:
+            return True
+        sma200 = indicators.sma(df["close"], 200).iloc[-1]
+        close = df["close"].iloc[-1]
+        healthy = close > sma200
+        log.info("Regime check: SPY close %.2f vs SMA200 %.2f -> %s",
+                 close, sma200, "healthy" if healthy else "downtrend")
+        return healthy
+    except Exception as e:  # noqa: BLE001
+        log.warning("Regime check failed (%s); allowing trades.", e)
+        return True
 
 
 def reconcile_run():

@@ -88,14 +88,48 @@ def _synthetic_prices(symbols, master_dates, seed=7):
     return data
 
 
-def load_data(cfg, synthetic=False):
-    """Return (price_dict, spy_df, master_dates). price_dict: symbol -> enriched df."""
+CACHE_FILE = None  # set lazily to PROJECT_DIR / "backtest_cache.pkl"
+
+
+def _cache_path():
+    global CACHE_FILE
+    if CACHE_FILE is None:
+        CACHE_FILE = config.PROJECT_DIR / "backtest_cache.pkl"
+    return CACHE_FILE
+
+
+def _download_raw(cfg, symbols, bench, need_days):
+    """Download raw daily bars for the benchmark + every symbol. Slow (network)."""
+    from datafeed import DataFeed
+    feed = DataFeed()
+    spy_raw = feed.get_daily_bars(bench, days=need_days)
+    if spy_raw is None:
+        raise RuntimeError(
+            "Could not load benchmark (SPY) data. Is the market-data endpoint up? "
+            "Try:  python datafeed.py test SPY   or   python backtest.py --synthetic"
+        )
+    raw = {}
+    for i, sym in enumerate(symbols, 1):
+        df = feed.get_daily_bars(sym, days=need_days)
+        if df is not None and len(df) >= 260:
+            raw[sym] = df
+        if i % 25 == 0:
+            log.info("Loaded data for %d/%d symbols...", i, len(symbols))
+    return spy_raw, raw
+
+
+def load_data(cfg, synthetic=False, refresh=False):
+    """Return (price_dict, spy_df, master_dates, sectors).
+
+    Raw bars are cached to backtest_cache.pkl so repeated experiments with
+    different config settings run in seconds instead of re-downloading.
+    Pass refresh=True (or --refresh) to force a fresh download."""
     import scanner
+    import pickle
     universe = scanner.load_universe()
     symbols = [u["symbol"] for u in universe]
     sectors = {u["symbol"]: u["sector"] for u in universe}
     bench = cfg["benchmark_symbol"]
-
     need_days = int(cfg["backtest_years"]) * 252 + 300  # extra for indicator warmup
 
     if synthetic:
@@ -103,24 +137,40 @@ def load_data(cfg, synthetic=False):
         raw = _synthetic_prices([bench] + symbols, master_dates)
         spy_raw = raw[bench]
     else:
-        from datafeed import DataFeed
-        feed = DataFeed()
-        spy_raw = feed.get_daily_bars(bench, days=need_days)
-        if spy_raw is None:
-            raise RuntimeError(
-                "Could not load benchmark (SPY) data. Is ThetaData running? "
-                "Try:  python backtest.py --synthetic  to test the engine."
-            )
-        master_dates = spy_raw.index
-        raw = {}
-        for i, sym in enumerate(symbols, 1):
-            df = feed.get_daily_bars(sym, days=need_days)
-            if df is not None and len(df) >= 260:
-                raw[sym] = df
-            if i % 25 == 0:
-                log.info("Loaded data for %d/%d symbols...", i, len(symbols))
+        cache = _cache_path()
+        cached = None
+        if not refresh and cache.exists():
+            try:
+                with open(cache, "rb") as f:
+                    cached = pickle.load(f)
+                # Invalidate if the universe or lookback window changed.
+                if set(cached.get("symbols", [])) != set(symbols) \
+                        or cached.get("need_days") != need_days:
+                    log.info("Cache is stale (universe/window changed); re-downloading.")
+                    cached = None
+            except Exception as e:  # noqa: BLE001
+                log.warning("Could not read cache (%s); re-downloading.", e)
+                cached = None
 
-    # Enrich and align everything to SPY's trading calendar.
+        if cached is not None:
+            log.info("Using cached market data from %s (saved %s). "
+                     "Delete that file or pass --refresh to re-download.",
+                     cache.name, cached.get("saved"))
+            spy_raw, raw = cached["spy_raw"], cached["raw"]
+        else:
+            spy_raw, raw = _download_raw(cfg, symbols, bench, need_days)
+            try:
+                with open(cache, "wb") as f:
+                    pickle.dump({"symbols": symbols, "need_days": need_days,
+                                 "saved": datetime.now().isoformat(timespec="seconds"),
+                                 "spy_raw": spy_raw, "raw": raw}, f)
+                log.info("Saved market data to %s for fast re-runs.", cache.name)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Could not write cache: %s", e)
+
+        master_dates = spy_raw.index
+
+    # Enrich and align everything to SPY's trading calendar (fast; uses cfg).
     spy = _enrich(spy_raw, cfg).reindex(master_dates)
     price = {}
     for sym in symbols:
@@ -164,11 +214,11 @@ def _row_passes(row, spy_ret, cfg):
 
 
 # -------------------------------------------------------------------- engine
-def run(synthetic=False):
+def run(synthetic=False, refresh=False):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     cfg = config.CONFIG
-    log.info("Loading data (%s)...", "synthetic" if synthetic else "ThetaData/Alpaca")
-    price, spy, dates, sectors = load_data(cfg, synthetic=synthetic)
+    log.info("Loading data (%s)...", "synthetic" if synthetic else "market data")
+    price, spy, dates, sectors = load_data(cfg, synthetic=synthetic, refresh=refresh)
     log.info("Loaded %d symbols over %d trading days.", len(price), len(dates))
 
     start_equity = float(cfg["backtest_starting_equity"])
@@ -206,8 +256,9 @@ def run(synthetic=False):
             reason = None
             holding = (today.date() - p["entry_date"].date()).days
 
-            # Time stop first.
-            if holding >= int(cfg["time_stop_days"]):
+            # Time stop first (a value of 0 or less disables it).
+            ts_days = int(cfg["time_stop_days"])
+            if ts_days > 0 and holding >= ts_days:
                 exit_price = row["open"] if not pd.isna(row["open"]) else row["close"]
                 reason = "TIME_STOP"
             else:
@@ -254,6 +305,14 @@ def run(synthetic=False):
         # ---- 3) drawdown halt ----
         if peak > 0 and (peak - equity) / peak * 100.0 > float(cfg["drawdown_halt_pct"]):
             continue
+
+        # ---- 3b) market-regime filter: skip new entries when SPY is below its
+        #          own 200-day average (i.e. the broad market is in a downtrend) ----
+        if bool(cfg.get("market_regime_filter", False)):
+            spy_close = spy_row["close"]
+            spy_sma200 = spy_row["sma200"]
+            if pd.isna(spy_sma200) or pd.isna(spy_close) or spy_close <= spy_sma200:
+                continue
 
         # ---- 4) place entries, simulated on tomorrow's bar ----
         held_syms = {p["symbol"] for p in positions}
@@ -344,6 +403,41 @@ def _report(closed, equity_curve, start_equity, final_equity):
     print(f" Max drawdown:      {max_dd:.1f}%")
     print("=" * 52)
 
+    # ---- Diagnostics: where does the money come from / go? ----
+    if n:
+        print("\n WHERE TRADES ENDED (exit reason breakdown)")
+        print(" " + "-" * 50)
+        print(f" {'reason':<12}{'count':>7}{'avg R':>9}{'total R':>10}{'avg days':>10}")
+        for reason in ("TARGET", "STOP", "TIME_STOP", "EXIT"):
+            grp = [t for t in closed if t["reason"] == reason]
+            if not grp:
+                continue
+            c = len(grp)
+            ar = sum(t["r"] for t in grp) / c
+            tr = sum(t["r"] for t in grp)
+            ad = sum(t["holding"] for t in grp) / c
+            print(f" {reason:<12}{c:>7}{ar:>9.2f}{tr:>10.2f}{ad:>10.1f}")
+        avg_hold = sum(t["holding"] for t in closed) / n
+        print(f"\n Average holding time: {avg_hold:.1f} calendar days")
+
+        # Benchmark: buy-and-hold SPY over the same window, for context.
+        try:
+            first_eq_date = equity_curve[0][0]
+            last_eq_date = equity_curve[-1][0]
+            print(f" Backtest window: {first_eq_date.date()} to {last_eq_date.date()}")
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Echo the key settings that produced THIS run, so runs are comparable.
+        cfg = config.CONFIG
+        print("\n SETTINGS USED FOR THIS RUN")
+        print(" " + "-" * 50)
+        print(f"   risk/trade {cfg['account_risk_pct']}%   ATR stop x{cfg['atr_stop_multiple']}"
+              f"   reward x{cfg['reward_multiple']}")
+        print(f"   time stop {cfg['time_stop_days']} days (0=off)"
+              f"   market-regime filter: {'ON' if cfg.get('market_regime_filter') else 'off'}")
+        print(f"   max positions {cfg['max_positions']}   max/sector {cfg['max_sector_positions']}")
+
     if equity_curve:
         dates = [d for d, _ in equity_curve]
         eqs = [e for _, e in equity_curve]
@@ -361,4 +455,5 @@ def _report(closed, equity_curve, start_equity, final_equity):
 
 if __name__ == "__main__":
     synthetic = "--synthetic" in sys.argv
-    run(synthetic=synthetic)
+    refresh = "--refresh" in sys.argv
+    run(synthetic=synthetic, refresh=refresh)

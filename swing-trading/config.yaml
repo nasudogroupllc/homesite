@@ -17,7 +17,12 @@ max_positions: 4             # Never hold more than this many open positions at 
 max_sector_positions: 1      # Never hold more than this many positions in one sector
 max_position_size_pct: 30    # A single position may not exceed this % of equity
 drawdown_halt_pct: 8         # Stop opening NEW trades if equity is this % below its all-time high
-time_stop_days: 14           # Force-close any position this many CALENDAR days old
+time_stop_days: 14           # Force-close any position this many CALENDAR days old (set to 0 to turn OFF)
+
+# Market-regime filter: when true, take NEW trades only while SPY is above its
+# own 200-day average (i.e. skip buying during broad market downtrends). This is
+# a standard risk control for long-only momentum strategies.
+market_regime_filter: true
 
 # ---- Scanner universe filters ----------------------------------------------
 price_min: 15                # Only consider stocks priced at or above this ($)
