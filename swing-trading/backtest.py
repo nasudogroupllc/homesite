@@ -398,11 +398,24 @@ def run(synthetic=False, refresh=False):
 
     closed, equity_curve, start_equity, final_equity = simulate(
         price, spy, dates, sectors, cfg)
-    _report(closed, equity_curve, start_equity, final_equity)
+
+    # SPY buy-and-hold over the same window, for an honest benchmark.
+    spy_bh = None
+    try:
+        warmup = 210
+        rs = max(len(dates) - int(cfg["backtest_years"]) * 252, warmup + 1)
+        c0 = spy["close"].iloc[rs]
+        c1 = spy["close"].iloc[-1]
+        if c0 and not pd.isna(c0) and not pd.isna(c1):
+            spy_bh = (c1 / c0 - 1.0) * 100.0
+    except Exception:  # noqa: BLE001
+        pass
+
+    _report(closed, equity_curve, start_equity, final_equity, spy_bh=spy_bh)
     return closed, equity_curve
 
 
-def _report(closed, equity_curve, start_equity, final_equity):
+def _report(closed, equity_curve, start_equity, final_equity, spy_bh=None):
     n = len(closed)
     if n == 0:
         print("\nNo trades were generated in the backtest window.")
@@ -434,6 +447,9 @@ def _report(closed, equity_curve, start_equity, final_equity):
     print(f" Final equity:      ${final_equity:,.2f}")
     print(f" Total return:      {total_return:+.1f}%")
     print(f" Max drawdown:      {max_dd:.1f}%")
+    if spy_bh is not None:
+        verdict = "BEAT" if total_return > spy_bh else "LAGGED"
+        print(f" SPY buy & hold:    {spy_bh:+.1f}%   (strategy {verdict} the market)")
     print("=" * 52)
 
     # ---- Diagnostics: where does the money come from / go? ----
