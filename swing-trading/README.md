@@ -41,11 +41,10 @@ The system also automatically:
 1. **Your Ubuntu VPS** (you already have it).
 2. **Market-data access** to the hosted thetadata.net endpoint
    (`https://marketdata.boxrun.xyz`), using the shared Bearer token you'll put in
-   `.env` as `MARKETDATA_API_KEY`. Nothing to install — it's a remote service.
-   (Your VPS IP, `2.24.109.17`, may need to be allowed by whoever runs the
-   endpoint; if the test in Step 4b fails with an auth error, that's the first
-   thing to check.) If the endpoint is ever unreachable, the system
-   automatically falls back to Alpaca's data and warns you on Telegram.
+   `.env` as `MARKETDATA_API_KEY`. Nothing to install — it's a remote service,
+   and the token is the only thing required (no IP allow-listing). If the
+   endpoint is ever unreachable, the system automatically falls back to Alpaca's
+   data and warns you on Telegram.
 3. **Alpaca paper-trading API keys** (you already have these in
    `/home/trader/alpaca-trading/.env`).
 4. **Your existing Telegram bot** token and chat id.
@@ -111,8 +110,8 @@ You should get a Telegram message within a few seconds. If not, double-check
 
 This confirms the hosted endpoint answers, your Bearer token is accepted, and
 real daily bars come back. You should see something like `OK - got 300 daily
-bars`. If it fails with an auth error, re-check `MARKETDATA_API_KEY` and whether
-your VPS IP (`2.24.109.17`) is allowed on the endpoint.
+bars`. If it fails with an auth error, re-check that `MARKETDATA_API_KEY` in your
+`.env` matches the token exactly (no extra spaces or quotes).
 
 ---
 
